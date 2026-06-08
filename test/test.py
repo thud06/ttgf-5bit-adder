@@ -1,40 +1,42 @@
-# SPDX-FileCopyrightText: © 2024 Tiny Tapeout
-# SPDX-License-Identifier: Apache-2.0
-
 import cocotb
-from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
+from cocotb.triggers import Timer
 
 
 @cocotb.test()
-async def test_project(dut):
-    dut._log.info("Start")
+async def test_5bit_adder_exhaustive(dut):
+    """Exhaustively test the 5-bit combinational adder."""
 
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 10, unit="us")
-    cocotb.start_soon(clock.start())
-
-    # Reset
-    dut._log.info("Reset")
     dut.ena.value = 1
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
-    dut.rst_n.value = 1
 
-    dut._log.info("Test project behavior")
+    for a in range(32):
+        for b in range(32):
+            for cin in range(2):
+                dut.ui_in.value = (cin << 5) | a
+                dut.uio_in.value = b
 
-    # Set the input values you want to test
-    dut.ui_in.value = 20
-    dut.uio_in.value = 30
+                await Timer(1, units="ns")
 
-    # Wait for one clock cycle to see the output values
-    await ClockCycles(dut.clk, 1)
+                expected_sum = a + b + cin
+                expected_low = expected_sum & 0x1F
+                expected_carry = (expected_sum >> 5) & 0x1
 
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 50
+                a_sign = (a >> 4) & 1
+                b_sign = (b >> 4) & 1
+                result_sign = (expected_low >> 4) & 1
+                expected_overflow = int((a_sign == b_sign) and (result_sign != a_sign))
 
-    # Keep testing the module by changing the input values, waiting for
-    # one or more clock cycles, and asserting the expected output values.
+                expected_zero = int(expected_low == 0)
+
+                expected_uo = (
+                    expected_low
+                    | (expected_carry << 5)
+                    | (expected_overflow << 6)
+                    | (expected_zero << 7)
+                )
+
+                actual_uo = int(dut.uo_out.value)
+
+                assert actual_uo == expected_uo, (
+                    f"A={a:02d} B={b:02d} cin={cin} "
+                    f"expected uo_out=0x{expected_uo:02x}, got 0x{actual_uo:02x}"
+                )
